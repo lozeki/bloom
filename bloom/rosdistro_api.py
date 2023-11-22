@@ -87,7 +87,11 @@ def get_index_url():
         owner = tokens[0]
         repo = tokens[1]
         branch = tokens[2]
-        gh = get_github_interface(quiet=True)
+        try:
+            gh = get_github_interface(quiet=True)
+        except Exception as e:
+            raise RuntimeError(f'rosdistro.get_index_url(): {index_url}')
+        # gh = get_github_interface(quiet=True)
         if gh is None:
             # Failed to get it with auth, try without auth (may fail)
             gh = Github(username=None, auth=None)

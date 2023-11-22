@@ -76,6 +76,10 @@ from bloom.github import GithubException
 from bloom.github import get_gh_info
 from bloom.github import get_github_interface
 
+from bloom.gitlab import Gitlab
+from bloom.gitlab import GitlabException
+from bloom.gitlab import GitlabAuthException
+
 from bloom.logging import debug
 from bloom.logging import error
 from bloom.logging import fmt
@@ -569,11 +573,32 @@ def generate_ros_distro_diff(track, repository, distro, override_release_reposit
         warning("This release resulted in no changes to the ROS distro file...")
     return None
 
+def get_gl_info(url):
+    o = urlparse(url)
+    if 'gitlab' not in o.netloc:
+        return None
+    url_paths = o.path.split('/')
+    if len(url_paths) < 7:
+        return None
+    if 6 < len(url_paths) < 10:
+        return {'server': '{}://{}'.format(o.scheme, o.netloc),
+                'org': url_paths[1],
+                'repo': url_paths[2],
+                'branch': url_paths[5],
+                'path': '/'.join(url_paths[6:])}
+    return {'server': '{}://{}'.format(o.scheme, o.netloc),
+            'org': url_paths[1],
+            'repo': url_paths[5],
+            'branch': url_paths[8],
+            'path': '/'.join(url_paths[9:])}
 
 def get_repo_info(distro_url):
     gh_info = get_gh_info(distro_url)
     if gh_info:
         return gh_info
+    else:
+        return get_gl_info(distro_url)
+
 
 
 def get_changelog_summary(release_tag):
@@ -777,7 +802,27 @@ Increasing version of package(s) in repository `{repository}` to `{version}`:
         # Open the pull request
         return gh.create_pull_request(base_info['org'], base_info['repo'], base_info['branch'],
                                       head_org, new_branch, title, body)
+    else:  # if base_info['server'] != 'github.com':
+        gl = get_gitlab_interface(server)
+        if gl is None:
+            return None
 
+        repo_obj = gl.get_repo(base_org, base_repo)
+
+        # Determine New Branch Name
+        branches = gl.list_branches(repo_obj)
+        new_branch = 'bloom-{repository}-{count}'
+        count = 0
+        while new_branch.format(repository=repository, count=count) in branches:
+            count += 1
+        new_branch = new_branch.format(repository=repository, count=count)
+
+        gl.create_branch(repo_obj, new_branch, base_branch)
+        gl.update_file(repo_obj, new_branch, title, base_path, updated_distro_file_yaml)
+
+        mr = gl.create_pull_request(repo_obj, new_branch, base_branch, title, body)
+        return mr['web_url']
+        
 _original_version = None
 
 
